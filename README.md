@@ -185,44 +185,44 @@ npm run check:release
 
 npm 只打包 `dist/`、`examples/`、README、LICENSE 等明確允許的檔案。`prepack` 會建置，`prepublishOnly` 會檢查必須在 `main`、執行測試；使用者安裝 registry 套件時不需要 TypeScript 開發依賴。
 
-### GitHub Trusted Publishing + npm Staged Publishing
+### GitHub Trusted Publishing：沿用已驗證的直接發布流程
 
-正式發布固定從 `main` 進行。GitHub Actions workflow 位於：
+正式發布從已合併至 `main` 的版本 Tag 進行，workflow 位於 `.github/workflows/publish.yml`。
+
+推送符合 `v*` 的 Tag 後，流程會：
+
+1. 驗證 Tag 與 `package.json` 版本一致、Tag commit 位於 `main` 歷史中。
+2. 在沒有 OIDC 發布權限的 verify job 執行測試、建置及打包。
+3. 記錄 tarball 的 SHA-512、來源 commit、名稱與版本，並上傳 artifact。
+4. 在獨立 publish job 下載同一份 artifact，重新檢查中繼資料與 SHA-512。
+5. 清除長效 Token 與既有 npm config，改用暫存設定及工作目錄。
+6. 使用 GitHub OIDC 短期憑證執行以下命令，**直接正式上架 npm**：
 
 ```text
-.github/workflows/publish.yml
+npm publish VERIFIED_TARBALL --access=public --provenance=true
 ```
 
-它只接受推送符合 `v*` 的版本 Tag，並使用 npm Trusted Publishing 的 OIDC，不保存長效 npm token。workflow 會確認 Tag 與 `package.json` 版本一致、Tag commit 已位於 `main` 歷史中，再執行測試後使用：
+此路徑沿用已成功的 `npm publish`＋OIDC 模式，不使用 staged publishing，成功後不會再出現 npm 待審或 Approve 步驟。請在推送 Tag 前完成版本與內容審查。
 
-```bash
-npm stage publish
-```
+#### npm 與 GitHub 設定
 
-這是「送進 npm 待審區」，不是直接上架；維護者必須在 npm 介面或 CLI 檢查並以 2FA 核准。
+- GitHub repository：`vanisoul/mattermost-mcp`。
+- workflow filename：`publish.yml`，檔案必須位於 `.github/workflows/`。
+- npm Trusted Publisher 類型：GitHub Actions。
+- Organization or user：`vanisoul`。
+- Repository：`mattermost-mcp`。
+- Environment name：留空，本 workflow 未使用 GitHub Environment。
+- Allowed action：必須允許直接 **`npm publish`**；只允許 staged publish 不足以執行此流程。
+- GitHub publish job 使用 `id-token: write` 與 GitHub-hosted runner；不需要 `NPM_TOKEN` secret。
+- 公開 repository 與公開 package 搭配 provenance；workflow 使用 Node 24 與 npm `11.21.1`。
 
-#### 一次性設定順序
+#### 認證失敗時
 
-1. 確認 GitHub repository 是 `vanisoul/mattermost-mcp`。
-2. 確認 `main` 已包含 `.github/workflows/publish.yml`。
-3. 若 `mattermost-mcp` 尚未存在於 npm，先以 npm 帳號手動完成**第一次 bootstrap 發布**，因為 npm Trusted Publisher 設定需要已存在的 package。第一次發布只需做一次；後續版本改用 Tag workflow。
-4. 在 npm package：
-   `Package → Settings → Trusted publishing → Add trusted publisher → GitHub Actions`
-5. 填入：
-   - Organization or user：`vanisoul`
-   - Repository：`mattermost-mcp`
-   - Workflow filename：`publish.yml`
-   - Environment name：留空（本 workflow 未使用 GitHub Environment）
-   - Allowed action：允許 `npm stage publish`；若要直接發布才另外允許 `npm publish`
-6. GitHub repository 的 Actions 設定確認允許 workflow 執行。
-7. 更新版本後建立版本 Tag，例如 `v1.0.0`。
-8. 推送 `main` 與 Tag；GitHub Actions 會自動啟動。
-9. 到 npm 的 **Staged Packages** 檢查內容。
-10. 確認無誤後按 **Approve**，並完成 npm 2FA，才會正式上架。
+`ENEEDAUTH` 只代表 npm 最終沒有取得可用的發布認證，不能單憑這個錯誤認定原因是「套件尚未建立」，也不能認定 OIDC 交換已成功。
 
-npm Trusted Publishing 官方要求 npm CLI 至少 `11.5.1`、Node 至少 `22.14.0`；本 workflow 使用 Node 24 與 npm `^11.15.0`。GitHub Actions 必須有 `id-token: write`，且要使用 GitHub-hosted runner。Trusted Publishing 成功時 npm 會使用短期 OIDC 憑證，公開 repository／公開 package 也可產生 provenance。
+請對照成功的發布設定，檢查 npm 上的套件授權／Trusted Publisher、owner、repository、workflow filename、直接發布權限、runner 與 `id-token: write`。Trusted Publisher 設定是逐套件管理，不會因同一個帳號的另一個套件發布成功而自動沿用。
 
-若想跳過待審流程，必須在 npm Trusted Publisher 設定中額外允許直接 `npm publish`，但本專案 workflow 刻意只使用 staged publishing，讓每次正式上架都有人工核准。
+若需初始化全新套件，應先確認該帳號與 registry 支援的初始化方式，不要把手動 bootstrap 當作每次 `ENEEDAUTH` 的固定解法，也不要在 GitHub runner 執行互動式 `npm login`。
 
 #### 第一版 `v1.0.0` 發布流程
 
@@ -244,13 +244,15 @@ npm run check:release
 npm pack --dry-run
 ```
 
-建立並推送第一版：
+僅在版本 Tag 尚不存在、且已確認發布權限時，建立並推送第一版：
 
 ```bash
 git tag -a v1.0.0 -m "release: v1.0.0"
 git push origin main
 git push origin v1.0.0
 ```
+
+若既有 Tag 曾經執行失敗，重新執行該次 workflow 仍會使用舊 commit 的 workflow 與腳本，不會自動取得 `main` 上的修正。請使用新版本／新 Tag，或在維護者明確授權後才重建尚未發布的 Tag；不要擅自移動或強制覆寫 Tag。
 
 之後每次發布都必須讓版本與 Tag 一致：
 

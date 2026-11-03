@@ -2,7 +2,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -25,7 +25,7 @@ export function assertManifest(pkg, manifest, bytes, sourceSha) {
   const filename = `${pkg.name.replace(/^@/, '').replaceAll('/', '-')}-${pkg.version}.tgz`;
   if (manifest.filename !== filename || manifest.name !== pkg.name || manifest.version !== pkg.version
     || manifest.repository !== pkg.repository?.url) throw new Error('Artifact 中繼資料不符。');
-  if (manifest.sha512 !== createHash('sha512').update(bytes).digest('hex')) throw new Error('Artifact SHA-512 不符，拒絕送審。');
+  if (manifest.sha512 !== createHash('sha512').update(bytes).digest('hex')) throw new Error('Artifact SHA-512 不符，拒絕發布。');
   if (manifest.sourceSha !== sourceSha) throw new Error('Artifact 來源 commit 與目前 workflow 不符。');
 }
 
@@ -52,6 +52,14 @@ async function run(command, args, options = {}) {
   });
 }
 
+export async function publishOidc(pkg, manifest, bytes, archive, env = process.env, execute = run) {
+  assertOidcContext(pkg, env);
+  assertManifest(pkg, manifest, bytes, env.GITHUB_SHA);
+  await withOidcEnvironment(env, (clean, cwd) => execute('npm', [
+    'publish', archive, '--access=public', `--registry=${registry}`, '--ignore-scripts', '--provenance=true', '--json',
+  ], { env: clean, cwd }));
+}
+
 async function main(mode) {
   const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   const filename = `${pkg.name.replace(/^@/, '').replaceAll('/', '-')}-${pkg.version}.tgz`;
@@ -64,14 +72,11 @@ async function main(mode) {
       sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
       sha512: createHash('sha512').update(await readFile(archive)).digest('hex'),
     }, null, 2) + '\n');
-  } else if (mode === 'stage-oidc') {
+  } else if (mode === 'publish-oidc') {
     assertOidcContext(pkg, process.env);
     const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
-    assertManifest(pkg, manifest, await readFile(archive), process.env.GITHUB_SHA);
-    await withOidcEnvironment(process.env, (env, cwd) => run('npm', [
-      'stage', 'publish', archive, '--access=public', `--registry=${registry}`, '--ignore-scripts', '--json',
-    ], { env, cwd }));
-  } else throw new Error('請指定 pack 或 stage-oidc。');
+    await publishOidc(pkg, manifest, await readFile(archive), archive);
+  } else throw new Error('請指定 pack 或 publish-oidc。');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

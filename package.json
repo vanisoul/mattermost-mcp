@@ -34,7 +34,7 @@
     "test:package": "node --test test-package/*.test.mjs",
     "check:release": "node scripts/check-release.mjs",
     "release:pack": "node scripts/release.mjs pack",
-    "release:stage-oidc": "node scripts/release.mjs stage-oidc",
+    "release:publish-oidc": "node scripts/release.mjs publish-oidc",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release && npm run check && npm run test:package"
   },

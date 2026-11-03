@@ -42,7 +42,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  stage:
+  publish:
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -61,11 +61,11 @@ jobs:
           package-manager-cache: false
       - name: 再次確認 Tag 來源
         run: npm run check:release
-      - name: 安裝支援 staged publishing 的 npm
+      - name: 安裝支援 OIDC 發布的 npm
         run: npm install --global npm@11.21.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: npm-release-${{ github.sha }}
           path: .release
-      - name: 驗證 SHA-512 並透過 OIDC 送至 npm 待審區
-        run: node scripts/release.mjs stage-oidc
+      - name: 驗證 SHA-512 並透過 OIDC 發布至 npm
+        run: node scripts/release.mjs publish-oidc
