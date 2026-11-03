@@ -81,6 +81,11 @@ test('訊息 tools 的 stdio MCP 與模擬 HTTP API 整合', async (t) => {
       assert.equal(tool.annotations.readOnlyHint, false);
       assert.equal(tool.annotations.idempotentHint, false);
       assert.equal(tool.annotations.destructiveHint, false);
+      assert.match(tool.description, /TL;DR/);
+      assert.match(tool.description, /5 行/);
+      assert.match(tool.description, /50 字/);
+      assert.match(tool.inputSchema.properties.message.description, /5 行/);
+      assert.match(tool.inputSchema.properties.message.description, /50/);
     }
     assert.equal(tools.find((item) => item.name === 'mattermost_get_thread').annotations.readOnlyHint, true);
   });
@@ -120,6 +125,58 @@ test('訊息 tools 的 stdio MCP 與模擬 HTTP API 整合', async (t) => {
     assert.equal((await call('create_post', { channelId: '../other', message: 'test' })).isError, true);
     assert.equal((await call('reply_to_thread', { channelId: CHANNEL, postId: 'bad', message: 'test' })).isError, true);
     assert.equal(requests.length, before);
+  });
+
+  await t.test('發送與回覆都接受每行 50 字、最多 5 行的邊界值', async () => {
+    const valid = [
+      '中'.repeat(50),
+      '😀'.repeat(50),
+      Array(5).fill('中'.repeat(50)).join('\n'),
+      Array(5).fill('😀'.repeat(50)).join('\r\n'),
+      Array(5).fill('重點').join('\r'),
+      '結論\n\n重點\n\n下一步',
+      '第一行\\n仍是同一行',
+    ];
+    for (const message of valid) {
+      for (const name of ['create_post', 'reply_to_thread']) {
+        const args = { channelId: CHANNEL, message, ...(name === 'reply_to_thread' ? { postId: ROOT } : {}) };
+        const result = await call(name, args);
+        assert.ok(!result.isError, result.content[0].text);
+        assert.equal(decode(result).message, message);
+      }
+    }
+  });
+
+  await t.test('發送與回覆都拒絕第 51 字或第 6 行，且不呼叫 API', async () => {
+    const invalid = [
+      '中'.repeat(51), 'a'.repeat(51), '😀'.repeat(51),
+      Array(6).fill('重點').join('\n'),
+      Array(6).fill('重點').join('\r\n'),
+      Array(6).fill('重點').join('\r'),
+      '結論\n\n\n\n\n下一步',
+      Array(5).fill('重點').join('\n') + '\n',
+      'a'.repeat(49) + '\\n',
+      'a'.repeat(49) + '  ',
+    ];
+    const before = requests.length;
+    for (const message of invalid) {
+      for (const name of ['create_post', 'reply_to_thread']) {
+        const args = { channelId: CHANNEL, message, ...(name === 'reply_to_thread' ? { postId: ROOT } : {}) };
+        const result = await call(name, args);
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /5 行/);
+        assert.match(result.content[0].text, /50 字/);
+      }
+    }
+    assert.equal(requests.length, before);
+  });
+
+  await t.test('讀取歷史長訊息不受發送限制影響', async () => {
+    const longId = 'z'.repeat(26);
+    const message = Array(8).fill('中'.repeat(80)).join('\n');
+    posts.set(longId, { ...post(longId), message });
+    assert.equal(decode(await call('get_post', { postId: longId })).message, message);
+    assert.equal(decode(await call('get_thread', { postId: longId })).posts[longId].message, message);
   });
 
   await t.test('拒絕封存頻道，不執行 POST', async () => {
