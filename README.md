@@ -6,7 +6,7 @@
 
 目前提供：
 
-- `mattermost_login`：開啟可見瀏覽器，前往 Mattermost 登入頁。工具會立即回傳，不會等待使用者登入而逾時。
+- `mattermost_login`：在遠端建立一次性 nonce callback，供本機 Login Helper 透過 SSH port forwarding 交接 Token。
 - `mattermost_auth_status`：以 `GET /api/v4/users/me` 驗證登入狀態；不會把 Token 回傳給模型。
 - `mattermost_get_current_user`：取得目前登入者。
 - `mattermost_list_teams`：列出目前使用者可存取的 teams。
@@ -73,15 +73,46 @@ pi mcp add -l mattermost --cwd "$PWD" -- node dist/server.js
 
 或重新啟動 Pi。接著可以呼叫 `mattermost_login`。
 
-## 使用流程
+## SSH 遠端初始化流程（B 方案）
 
-1. 先執行 `mattermost_login`。
-2. 瀏覽器會開啟 `https://chat.webpat.co/`。
-3. 在瀏覽器完成 Mattermost / GitLab 登入。
-4. 登入完成後呼叫 `mattermost_auth_status`。
-5. 驗證成功後，再使用 `mattermost_get_current_user`、`mattermost_list_teams` 等 tools。
+MCP 可以留在 server 上，瀏覽器則在你的本機開啟。請先在 Pi 呼叫 `mattermost_login`，並將你的 SSH 目標填入，例如 `bevis@server.example`：
 
-`mattermost_login` 不會等待瀏覽器操作完成，這是刻意設計，避免 MCP request 在你登入期間逾時。登入完成後，背景流程會嘗試從 Mattermost response header 或 `MMSID` Cookie 取得 Session Token，並先用 `/api/v4/users/me` 驗證；只有驗證成功才會保存。
+```text
+mattermost_login({"sshTarget":"bevis@server.example"})
+```
+
+工具會回傳一個只在 5 分鐘內有效的 command，例如：
+
+```bash
+node dist/desktop-login.js --ssh bevis@server.example --remote-port 38123 --nonce <一次性值>
+```
+
+請在**你的本機**執行該 command（不是遠端 server）：
+
+```bash
+npm install
+npx playwright install chromium
+npm run build
+node dist/desktop-login.js --ssh bevis@server.example --remote-port <工具回傳的 port> --nonce <工具回傳的 nonce>
+```
+
+本機 Login Helper 會：
+
+1. 建立 SSH `-R` reverse port forwarding；callback server 與遠端 listener 都只綁定 `127.0.0.1`。
+2. 開啟 `https://chat.webpat.co/`，讓 Mattermost 自己導向 GitLab OAuth。
+3. 等你完成正常登入。
+4. 只取 Mattermost 的 `MMSID` 或驗證過的 `Token` header。
+5. 透過 SSH 加密通道 POST 到遠端一次性 callback。
+6. 遠端以 `/api/v4/users/me` 驗證，成功後才保存 Bearer Token。
+7. callback 接受一次後立即關閉；nonce 5 分鐘後失效。
+
+完成後回到 Pi 呼叫：
+
+```text
+mattermost_auth_status
+```
+
+注意：nonce 可以出現在本機 command line，因為它是短期配對值，不是 Session Token；真正的 Token 不會出現在 URL、command arguments、SSH log 或 MCP 回應中。
 
 ## 自訂站台
 
@@ -108,7 +139,7 @@ MATTERMOST_URL=https://chat.example.com npm run build
 
 ## 無圖形桌面環境
 
-MCP 需要在能開啟可見瀏覽器的本機執行。若 Pi 是透過 SSH 連到沒有 `DISPLAY` 或 Wayland 的主機，`mattermost_login` 會明確提示錯誤；這是刻意避免在無法操作的背景瀏覽器中卡住登入流程。
+遠端 MCP 不需要 `DISPLAY`；只有本機 Login Helper 需要可操作的桌面瀏覽器。這個設計適合 Pi 透過 SSH 執行的情境。
 
 ## 安全性
 

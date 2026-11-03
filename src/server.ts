@@ -1,14 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { BrowserLogin } from './login.js';
 import { MattermostApi, SessionStore, normalizeServerUrl } from './session.js';
+import { PairingService } from './pairing.js';
 
 const SERVER_URL = normalizeServerUrl(process.env.MATTERMOST_URL ?? 'https://chat.webpat.co');
 const DATA_ROOT = process.env.MATTERMOST_MCP_DATA_DIR;
 const store = new SessionStore(SERVER_URL, DATA_ROOT);
 const api = new MattermostApi(SERVER_URL, store);
-const login = new BrowserLogin(api, store);
+const pairing = new PairingService(api, store);
 
 function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
@@ -21,11 +21,16 @@ function errorResult(message: string) {
 const server = new McpServer({ name: 'mattermost-mcp', version: '0.1.0' });
 
 server.registerTool('mattermost_login', {
-  description: '開啟可見瀏覽器，使用 Mattermost 設定的登入方式（例如 GitLab SSO）登入；工具會立即回傳，請完成登入後使用 mattermost_auth_status。',
-  inputSchema: {},
-}, async () => {
-  try { return textResult(await login.start()); }
-  catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+  description: '在遠端 MCP 建立一次性登入配對，讓本機 Login Helper 透過 SSH port forwarding 傳送已登入的 Mattermost Session Token。',
+  inputSchema: { sshTarget: z.string().optional().describe('本機可使用的 SSH 目標，例如 user@example.com；不填則只建立配對資料') },
+}, async ({ sshTarget }) => {
+  try {
+    const info = await pairing.start();
+    const command = sshTarget
+      ? `node dist/desktop-login.js --ssh ${sshTarget} --remote-port ${info.port} --nonce ${info.nonce}`
+      : undefined;
+    return textResult({ started: true, expiresAt: info.expiresAt, ...(command ? { command } : {}), message: '請在可開啟瀏覽器的本機執行 command。Token 只會透過 SSH callback 傳送，成功後使用 mattermost_auth_status。' });
+  } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
 });
 
 server.registerTool('mattermost_auth_status', {
@@ -34,7 +39,7 @@ server.registerTool('mattermost_auth_status', {
 }, async () => {
   try {
     const session = await store.load();
-    if (!session) return textResult({ authenticated: false, reason: '尚未取得 Mattermost Session Token，請先執行 mattermost_login。' });
+    if (!session) return textResult({ authenticated: false, pairing: pairing.status, reason: pairing.status.state !== 'idle' ? '等待本機 Login Helper 完成瀏覽器登入與 SSH 交接。' : '尚未取得 Mattermost Session Token，請先執行 mattermost_login。' });
     const user = await api.verify(session.token);
     return textResult({ authenticated: true, user, authType: 'mattermost_session_token' });
   } catch (error) {
