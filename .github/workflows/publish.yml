@@ -1,0 +1,65 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'vanisoul/mattermost-mcp' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: 確認 main 與來源 commit
+        run: npm run check:release
+      - run: npm ci --ignore-scripts
+      - name: 測試、建置並打包
+        run: npm run check && npm run release:pack
+      - name: 驗證 npm 套件 manifest 與 CLI
+        run: npm run test:package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-release-${{ github.sha }}
+          path: .release/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  stage:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: 安裝支援 staged publishing 的 npm
+        run: npm install --global npm@11.21.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-release-${{ github.sha }}
+          path: .release
+      - name: 驗證 SHA-512 並透過 OIDC 送至 npm 待審區
+        run: node scripts/release.mjs stage-oidc

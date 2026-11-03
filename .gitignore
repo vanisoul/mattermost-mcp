@@ -3,6 +3,7 @@ dist/
 .env
 *.log
 *.tgz
+.release/
 
 # Local browser profile and session credentials
 .mattermost-mcp/

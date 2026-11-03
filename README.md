@@ -178,21 +178,63 @@ npx --yes mattermost-mcp@0.1.0 login --ticket PAIRING_CODE
 npm ci
 npm run check
 npm run test:package
+npm run check:release
 ```
 
-開發時可使用 `node dist/cli.js` 啟動 MCP，並在 Client 的 `env` 明確設定 `MATTERMOST_URL`。`examples/mcp.json` 是可公開的設定範例；`.pi/mcp.json` 是不納入版本控制的個人開發設定。
+開發時可使用 `node dist/cli.js` 啟動 MCP，並在 Client 的 `env` 明確設定 `MATTERMOST_URL`。`examples/mcp.json` 是可公開的設定範例；個人 `.pi/mcp.json` 不納入版本控制。
 
-npm 只打包 `dist/`、`examples/`、README 與 LICENSE 等明確允許的檔案。`prepack` 會建置，`prepublishOnly` 會執行測試；使用者安裝 registry 套件時不需要 TypeScript 開發依賴。
+npm 只打包 `dist/`、`examples/`、README、LICENSE 等明確允許的檔案。`prepack` 會建置，`prepublishOnly` 會檢查必須在 `main`、執行測試；使用者安裝 registry 套件時不需要 TypeScript 開發依賴。
 
-發布前請確認：套件名稱擁有權、版本、LICENSE，以及 GitHub repository 的 `repository`／`homepage`／`bugs` 中繼資料。GitHub 位置由維護者決定，本專案不內建私人 repository URL。
+### GitHub Trusted Publishing + npm Staged Publishing
+
+正式發布固定從 `main` 進行。GitHub Actions workflow 位於：
+
+```text
+.github/workflows/publish.yml
+```
+
+它只接受從 `main` 手動觸發，並使用 npm Trusted Publishing 的 OIDC，不保存長效 npm token。workflow 會執行測試後使用：
 
 ```bash
-npm pack --dry-run
-npm login
-npm publish --access public
+npm stage publish
 ```
 
-執行 `npm publish` 才會真的發布；這不是安裝或測試步驟。若套件改名，請同步調整 README 與設定範例；tool 產生的登入指令會自動使用 `package.json` 的名稱與版本。
+這是「送進 npm 待審區」，不是直接上架；維護者必須在 npm 介面或 CLI 檢查並以 2FA 核准。
+
+#### 一次性設定順序
+
+1. 確認 GitHub repository 是 `vanisoul/mattermost-mcp`。
+2. 確認 `main` 已包含 `.github/workflows/publish.yml`。
+3. 若 `mattermost-mcp` 尚未存在於 npm，先以 npm 帳號手動完成**第一次 bootstrap 發布**，因為 npm Trusted Publisher 設定需要已存在的 package。第一次發布只需做一次；後續版本改用此 workflow。
+4. 在 npm package：
+   `Package → Settings → Trusted publishing → Add trusted publisher → GitHub Actions`
+5. 填入：
+   - Organization or user：`vanisoul`
+   - Repository：`mattermost-mcp`
+   - Workflow filename：`publish.yml`
+   - Environment name：留空（本 workflow 未使用 GitHub Environment）
+   - Allowed action：允許 `npm stage publish`；若要直接發布才另外允許 `npm publish`
+6. GitHub repository 的 Actions 設定確認允許 workflow 執行。
+7. 從 `main` 手動執行 **Publish npm package**。
+8. 到 npm 的 **Staged Packages** 檢查內容。
+9. 確認無誤後按 **Approve**，並完成 npm 2FA，才會正式上架。
+
+npm Trusted Publishing 官方要求 npm CLI 至少 `11.5.1`、Node 至少 `22.14.0`；本 workflow 使用 Node 24 與 npm `^11.15.0`。GitHub Actions 必須有 `id-token: write`，且要使用 GitHub-hosted runner。Trusted Publishing 成功時 npm 會使用短期 OIDC 憑證，公開 repository／公開 package 也可產生 provenance。
+
+若想跳過待審流程，必須在 npm Trusted Publisher 設定中額外允許直接 `npm publish`，但本專案 workflow 刻意只使用 staged publishing，讓每次正式上架都有人工核准。
+
+#### 本機驗證發布內容
+
+```bash
+git switch main
+npm ci
+npm run check
+npm run test:package
+npm run check:release
+npm pack --dry-run
+```
+
+不要在 feature branch 或未確認的工作樹執行正式發布。若套件改名，請同步調整 README、`package.json`、GitHub trusted publisher 設定；登入指令會自動使用 `package.json` 的名稱與版本。
 
 ## 授權
 

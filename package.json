@@ -4,6 +4,14 @@
   "description": "通用 Mattermost MCP，支援瀏覽器登入、Session Token 認證及訊息與討論串 API",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vanisoul/mattermost-mcp.git"
+  },
+  "homepage": "https://github.com/vanisoul/mattermost-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/vanisoul/mattermost-mcp/issues"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -24,8 +32,11 @@
     "check": "npm run build && npm test",
     "test": "node --test test/*.test.mjs",
     "test:package": "node --test test-package/*.test.mjs",
+    "check:release": "node scripts/check-release.mjs",
+    "release:pack": "node scripts/release.mjs pack",
+    "release:stage-oidc": "node scripts/release.mjs stage-oidc",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run check && npm run test:package"
+    "prepublishOnly": "npm run check:release && npm run check && npm run test:package"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
