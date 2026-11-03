@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { MattermostApi, SessionStore, normalizeServerUrl } from './session.js';
-import { PairingService } from './pairing.js';
+import { PairingService, encodeTicket } from './pairing.js';
 
 const SERVER_URL = normalizeServerUrl(process.env.MATTERMOST_URL ?? 'https://chat.webpat.co');
 const DATA_ROOT = process.env.MATTERMOST_MCP_DATA_DIR;
@@ -27,7 +27,7 @@ server.registerTool('mattermost_login', {
   try {
     const info = await pairing.start();
     const command = sshTarget
-      ? `node dist/desktop-login.js --ssh ${sshTarget} --remote-port ${info.port} --nonce ${info.nonce}`
+      ? `node dist/desktop-login.js --ssh ${sshTarget} --ticket ${encodeTicket(info)}`
       : undefined;
     return textResult({ started: true, expiresAt: info.expiresAt, ...(command ? { command } : {}), message: '請在可開啟瀏覽器的本機執行 command。Token 只會透過 SSH callback 傳送，成功後使用 mattermost_auth_status。' });
   } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }

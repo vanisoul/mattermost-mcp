@@ -81,10 +81,10 @@ MCP 可以留在 server 上，瀏覽器則在你的本機開啟。請先在 Pi �
 mattermost_login({"sshTarget":"bevis@server.example"})
 ```
 
-工具會回傳一個只在 5 分鐘內有效的 command，例如：
+工具會回傳一個包含 5 分鐘一次性配對碼的 command，例如：
 
 ```bash
-node dist/desktop-login.js --ssh bevis@server.example --remote-port 38123 --nonce <一次性值>
+node dist/desktop-login.js --ssh bevis@server.example --ticket <一次性配對碼>
 ```
 
 請在**你的本機**執行該 command（不是遠端 server）：
@@ -93,12 +93,12 @@ node dist/desktop-login.js --ssh bevis@server.example --remote-port 38123 --nonc
 npm install
 npx playwright install chromium
 npm run build
-node dist/desktop-login.js --ssh bevis@server.example --remote-port <工具回傳的 port> --nonce <工具回傳的 nonce>
+node dist/desktop-login.js --ssh bevis@server.example --ticket <工具回傳的配對碼>
 ```
 
 本機 Login Helper 會：
 
-1. 建立 SSH `-R` reverse port forwarding；callback server 與遠端 listener 都只綁定 `127.0.0.1`。
+1. 建立 SSH `-L` local port forwarding；本機與遠端 callback listener 都只綁定 `127.0.0.1`。
 2. 開啟 `https://chat.webpat.co/`，讓 Mattermost 自己導向 GitLab OAuth。
 3. 等你完成正常登入。
 4. 只取 Mattermost 的 `MMSID` 或驗證過的 `Token` header。
@@ -112,7 +112,7 @@ node dist/desktop-login.js --ssh bevis@server.example --remote-port <工具回�
 mattermost_auth_status
 ```
 
-注意：nonce 可以出現在本機 command line，因為它是短期配對值，不是 Session Token；真正的 Token 不會出現在 URL、command arguments、SSH log 或 MCP 回應中。
+注意：配對碼可以出現在本機 command line，因為它是短期配對值，不是 Session Token；真正的 Token 不會出現在 URL、SSH log 或 MCP 回應中。
 
 ## 自訂站台
 
