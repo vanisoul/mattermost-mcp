@@ -4,27 +4,39 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertOidcContext, assertManifest, cleanOidcEnvironment, withOidcEnvironment } from '../scripts/release.mjs';
+import { assertReleaseSource } from '../scripts/check-release.mjs';
 
-const pkg = { name: 'mattermost-mcp', version: '0.1.0', repository: { url: 'git+https://github.com/vanisoul/mattermost-mcp.git' }, publishConfig: { access: 'public' } };
+const pkg = { name: 'mattermost-mcp', version: '1.0.0', repository: { url: 'git+https://github.com/vanisoul/mattermost-mcp.git' }, publishConfig: { access: 'public' } };
 const env = {
-  GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'vanisoul/mattermost-mcp', GITHUB_REF: 'refs/heads/main',
+  GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'vanisoul/mattermost-mcp', GITHUB_REF: 'refs/tags/v1.0.0',
   GITHUB_SHA: 'a'.repeat(40), RUNNER_ENVIRONMENT: 'github-hosted',
   ACTIONS_ID_TOKEN_REQUEST_URL: 'https://example.com/test-oidc', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-oidc-only',
 };
 
-test('OIDC 僅接受正式 repository、main 與 GitHub-hosted runner', () => {
+test('OIDC 僅接受正式 repository、版本 Tag 與 GitHub-hosted runner', () => {
   assert.doesNotThrow(() => assertOidcContext(pkg, env));
   for (const patch of [
-    { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/tags/v0.1.0' },
+    { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/heads/main' }, { GITHUB_REF: 'refs/tags/v1.0.1' },
     { GITHUB_REPOSITORY: 'other/fork' }, { RUNNER_ENVIRONMENT: 'self-hosted' },
     { ACTIONS_ID_TOKEN_REQUEST_TOKEN: '' }, { GITHUB_SHA: '' },
   ]) assert.throws(() => assertOidcContext(pkg, { ...env, ...patch }));
 });
 
+test('本機發布只接受 main，CI 則接受 main 歷史中的正確 Tag', () => {
+  assert.doesNotThrow(() => assertReleaseSource(pkg, { branch: 'main' }));
+  assert.throws(() => assertReleaseSource(pkg, { branch: 'feat/test' }));
+  const source = { ref: 'refs/tags/v1.0.0', head: env.GITHUB_SHA, sha: env.GITHUB_SHA, onMain: true, branch: '' };
+  assert.doesNotThrow(() => assertReleaseSource(pkg, source));
+  assert.throws(() => assertReleaseSource(pkg, { ...source, onMain: false }));
+  assert.throws(() => assertReleaseSource(pkg, { ...source, ref: 'refs/tags/v1.0.1' }));
+  assert.throws(() => assertReleaseSource(pkg, { ...source, head: 'b'.repeat(40) }));
+  assert.throws(() => assertReleaseSource(pkg, { ...source, ref: 'refs/heads/main' }));
+});
+
 test('Artifact 必須符合 SHA-512、版本與來源 commit', () => {
   const bytes = Buffer.from('test-only-archive');
   const manifest = { name: pkg.name, version: pkg.version, repository: pkg.repository.url,
-    filename: 'mattermost-mcp-0.1.0.tgz', sourceSha: env.GITHUB_SHA,
+    filename: 'mattermost-mcp-1.0.0.tgz', sourceSha: env.GITHUB_SHA,
     sha512: createHash('sha512').update(bytes).digest('hex') };
   assert.doesNotThrow(() => assertManifest(pkg, manifest, bytes, env.GITHUB_SHA));
   assert.throws(() => assertManifest(pkg, manifest, Buffer.from('tampered'), env.GITHUB_SHA));

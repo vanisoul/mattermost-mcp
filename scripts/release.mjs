@@ -13,7 +13,7 @@ const manifestFile = join(artifactDir, 'manifest.json');
 
 export function assertOidcContext(pkg, env) {
   if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== repository) throw new Error('OIDC 僅允許正式 GitHub repository。');
-  if (env.GITHUB_REF !== 'refs/heads/main') throw new Error('OIDC 發布只能從 main 執行。');
+  if (env.GITHUB_REF !== `refs/tags/v${pkg.version}`) throw new Error('OIDC 發布 Tag 必須與 package.json 版本完全一致。');
   if (!/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '')) throw new Error('缺少有效的來源 commit SHA。');
   if (pkg.repository?.url !== `git+https://github.com/${repository}.git`) throw new Error('package.json repository.url 不符。');
   if (pkg.private || pkg.publishConfig?.access !== 'public') throw new Error('必須是明確允許公開發布的套件。');

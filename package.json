@@ -1,6 +1,6 @@
 {
   "name": "mattermost-mcp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "通用 Mattermost MCP，支援瀏覽器登入、Session Token 認證及訊息與討論串 API",
   "type": "module",
   "license": "MIT",

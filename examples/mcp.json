@@ -2,7 +2,7 @@
   "mcpServers": {
     "mattermost": {
       "command": "npx",
-      "args": ["--yes", "mattermost-mcp@0.1.0"],
+      "args": ["--yes", "mattermost-mcp@1.0.0"],
       "env": {
         "MATTERMOST_URL": "https://mattermost.example.com"
       }

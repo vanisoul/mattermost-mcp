@@ -4,7 +4,7 @@
 
 **不綁定身份提供者，不需要額外註冊 OAuth Application，也不需要把帳密或 Token 貼給模型。** 原生登入與 SSO 的導向由 Mattermost 站台處理；MCP 只接受通過 `GET /api/v4/users/me` 驗證的 Mattermost Token。
 
-> 本文件的 registry `npx` 範例需等 `mattermost-mcp@0.1.0` 實際發布到 npm 後才能使用。原始碼開發與 tarball 驗證不需要先發布。
+> 本文件的 registry `npx` 範例需等 `mattermost-mcp@1.0.0` 實際發布到 npm 後才能使用。原始碼開發與 tarball 驗證不需要先發布。
 
 ## 快速開始：npx 設定 MCP
 
@@ -15,7 +15,7 @@
   "mcpServers": {
     "mattermost": {
       "command": "npx",
-      "args": ["--yes", "mattermost-mcp@0.1.0"],
+      "args": ["--yes", "mattermost-mcp@1.0.0"],
       "env": {
         "MATTERMOST_URL": "https://mattermost.example.com"
       }
@@ -38,7 +38,7 @@
 ```bash
 pi mcp add mattermost \
   --env MATTERMOST_URL=https://mattermost.example.com \
-  -- npx --yes mattermost-mcp@0.1.0
+  -- npx --yes mattermost-mcp@1.0.0
 ```
 
 專案限定設定使用 `pi mcp add -l`。設定完成後執行 `/reload` 或重新啟動 Pi。
@@ -54,7 +54,7 @@ pi mcp add mattermost \
 只需要在**操作瀏覽器的電腦**執行，不需要在無桌面的遠端 MCP server 執行：
 
 ```bash
-npx --yes mattermost-mcp@0.1.0 install-browser
+npx --yes mattermost-mcp@1.0.0 install-browser
 ```
 
 這會安裝套件所使用的 Playwright Chromium，不會在一般 `npx` 啟動 MCP 時自動下載瀏覽器。Linux 若缺少 Chromium 所需的系統函式庫，請依 Playwright 提示由管理員安裝。
@@ -66,7 +66,7 @@ npx --yes mattermost-mcp@0.1.0 install-browser
 3. 在同一台電腦的終端機執行 command，例如：
 
 ```bash
-npx --yes mattermost-mcp@0.1.0 login --ticket PAIRING_CODE
+npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
 ```
 
 完成瀏覽器登入後，執行 `mattermost_auth_status` 驗證。同機模式不需要 SSH。
@@ -84,7 +84,7 @@ mattermost_login({"sshTarget":"my-server"})
 工具會回傳有效期 **5 分鐘**的 command，例如：
 
 ```bash
-npx --yes mattermost-mcp@0.1.0 login \
+npx --yes mattermost-mcp@1.0.0 login \
   --ssh my-server \
   --ticket PAIRING_CODE
 ```
@@ -105,10 +105,10 @@ callback 僅綁定 `127.0.0.1`，不需要開公開 HTTP port。配對碼包含�
 ## CLI
 
 ```bash
-npx --yes mattermost-mcp@0.1.0 --help
-npx --yes mattermost-mcp@0.1.0 --version
-npx --yes mattermost-mcp@0.1.0 install-browser
-npx --yes mattermost-mcp@0.1.0 login --ticket PAIRING_CODE
+npx --yes mattermost-mcp@1.0.0 --help
+npx --yes mattermost-mcp@1.0.0 --version
+npx --yes mattermost-mcp@1.0.0 install-browser
+npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
 ```
 
 `mattermost-mcp` 不帶參數或使用 `serve` 都會啟動 stdio MCP server；站台由 `MATTERMOST_URL` 指定。套件也提供 `mattermost-mcp-login` 執行檔作為登入指令的別名。
@@ -193,7 +193,7 @@ npm 只打包 `dist/`、`examples/`、README、LICENSE 等明確允許的檔案�
 .github/workflows/publish.yml
 ```
 
-它只接受從 `main` 手動觸發，並使用 npm Trusted Publishing 的 OIDC，不保存長效 npm token。workflow 會執行測試後使用：
+它只接受推送符合 `v*` 的版本 Tag，並使用 npm Trusted Publishing 的 OIDC，不保存長效 npm token。workflow 會確認 Tag 與 `package.json` 版本一致、Tag commit 已位於 `main` 歷史中，再執行測試後使用：
 
 ```bash
 npm stage publish
@@ -205,7 +205,7 @@ npm stage publish
 
 1. 確認 GitHub repository 是 `vanisoul/mattermost-mcp`。
 2. 確認 `main` 已包含 `.github/workflows/publish.yml`。
-3. 若 `mattermost-mcp` 尚未存在於 npm，先以 npm 帳號手動完成**第一次 bootstrap 發布**，因為 npm Trusted Publisher 設定需要已存在的 package。第一次發布只需做一次；後續版本改用此 workflow。
+3. 若 `mattermost-mcp` 尚未存在於 npm，先以 npm 帳號手動完成**第一次 bootstrap 發布**，因為 npm Trusted Publisher 設定需要已存在的 package。第一次發布只需做一次；後續版本改用 Tag workflow。
 4. 在 npm package：
    `Package → Settings → Trusted publishing → Add trusted publisher → GitHub Actions`
 5. 填入：
@@ -215,15 +215,25 @@ npm stage publish
    - Environment name：留空（本 workflow 未使用 GitHub Environment）
    - Allowed action：允許 `npm stage publish`；若要直接發布才另外允許 `npm publish`
 6. GitHub repository 的 Actions 設定確認允許 workflow 執行。
-7. 從 `main` 手動執行 **Publish npm package**。
-8. 到 npm 的 **Staged Packages** 檢查內容。
-9. 確認無誤後按 **Approve**，並完成 npm 2FA，才會正式上架。
+7. 更新版本後建立版本 Tag，例如 `v1.0.0`。
+8. 推送 `main` 與 Tag；GitHub Actions 會自動啟動。
+9. 到 npm 的 **Staged Packages** 檢查內容。
+10. 確認無誤後按 **Approve**，並完成 npm 2FA，才會正式上架。
 
 npm Trusted Publishing 官方要求 npm CLI 至少 `11.5.1`、Node 至少 `22.14.0`；本 workflow 使用 Node 24 與 npm `^11.15.0`。GitHub Actions 必須有 `id-token: write`，且要使用 GitHub-hosted runner。Trusted Publishing 成功時 npm 會使用短期 OIDC 憑證，公開 repository／公開 package 也可產生 provenance。
 
 若想跳過待審流程，必須在 npm Trusted Publisher 設定中額外允許直接 `npm publish`，但本專案 workflow 刻意只使用 staged publishing，讓每次正式上架都有人工核准。
 
-#### 本機驗證發布內容
+#### 第一版 `v1.0.0` 發布流程
+
+目前第一版版本已規劃為：
+
+```text
+package.json: 1.0.0
+Git tag: v1.0.0
+```
+
+本機先驗證：
 
 ```bash
 git switch main
@@ -232,6 +242,21 @@ npm run check
 npm run test:package
 npm run check:release
 npm pack --dry-run
+```
+
+建立並推送第一版：
+
+```bash
+git tag -a v1.0.0 -m "release: v1.0.0"
+git push origin main
+git push origin v1.0.0
+```
+
+之後每次發布都必須讓版本與 Tag 一致：
+
+```text
+package.json 1.1.0 → git tag v1.1.0
+package.json 2.0.0 → git tag v2.0.0
 ```
 
 不要在 feature branch 或未確認的工作樹執行正式發布。若套件改名，請同步調整 README、`package.json`、GitHub trusted publisher 設定；登入指令會自動使用 `package.json` 的名稱與版本。
