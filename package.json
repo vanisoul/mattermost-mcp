@@ -1,15 +1,31 @@
 {
   "name": "mattermost-mcp",
   "version": "0.1.0",
-  "private": true,
+  "description": "通用 Mattermost MCP，支援瀏覽器登入、Session Token 認證及訊息與討論串 API",
   "type": "module",
-  "description": "Local MCP tools for Mattermost browser-session authentication and read-only API access",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "examples"
+  ],
+  "bin": {
+    "mattermost-mcp": "dist/cli.js",
+    "mattermost-mcp-login": "dist/desktop-login.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "login": "node dist/desktop-login.js",
     "check": "npm run build && npm test",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:package": "node --test test-package/*.test.mjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check && npm run test:package"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -19,5 +35,8 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

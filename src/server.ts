@@ -1,11 +1,15 @@
+#!/usr/bin/env node
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { MattermostApi, SessionStore, normalizeServerUrl } from './session.js';
 import { PairingService, encodeTicket } from './pairing.js';
 import { registerMessageTools } from './messages.js';
-
-const SERVER_URL = normalizeServerUrl(process.env.MATTERMOST_URL ?? 'https://chat.webpat.co');
+import { loginCommand, PACKAGE_NAME, PACKAGE_VERSION } from './package-info.js';
+const rawServerUrl = process.env.MATTERMOST_URL;
+if (!rawServerUrl) throw new Error('請在 MCP 設定的 env 中指定 MATTERMOST_URL。');
+const SERVER_URL = normalizeServerUrl(rawServerUrl);
 const DATA_ROOT = process.env.MATTERMOST_MCP_DATA_DIR;
 const store = new SessionStore(SERVER_URL, DATA_ROOT);
 const api = new MattermostApi(SERVER_URL, store);
@@ -19,18 +23,20 @@ function errorResult(message: string) {
   return { isError: true, content: [{ type: 'text' as const, text: message }] };
 }
 
-const server = new McpServer({ name: 'mattermost-mcp', version: '0.1.0' });
+const server = new McpServer({ name: PACKAGE_NAME, version: PACKAGE_VERSION });
+server.server.onclose = () => { void pairing.stop(); };
 
 server.registerTool('mattermost_login', {
-  description: '在遠端 MCP 建立一次性登入配對，讓本機 Login Helper 透過 SSH port forwarding 傳送已登入的 Mattermost Session Token。',
-  inputSchema: { sshTarget: z.string().optional().describe('本機可使用的 SSH 目標，例如 user@example.com；不填則只建立配對資料') },
+  description: '建立一次性登入配對並回傳 npx 登入指令。MCP 在遠端時指定 sshTarget，讓本機 Login Helper 透過 SSH 交接 Session Token；同機則可省略。登入提供者由 Mattermost 站台設定決定。',
+  inputSchema: { sshTarget: z.string().optional().describe('本機可使用的 SSH alias 或 user@example.com；MCP 與瀏覽器同機時省略') },
 }, async ({ sshTarget }) => {
   try {
+    if (sshTarget && !/^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,254}$/.test(sshTarget)) {
+      throw new Error('SSH 目標格式無效，請使用 SSH alias 或 user@hostname。');
+    }
     const info = await pairing.start();
-    const command = sshTarget
-      ? `node dist/desktop-login.js --ssh ${sshTarget} --ticket ${encodeTicket(info)}`
-      : undefined;
-    return textResult({ started: true, expiresAt: info.expiresAt, ...(command ? { command } : {}), message: '請在可開啟瀏覽器的本機執行 command。Token 只會透過 SSH callback 傳送，成功後使用 mattermost_auth_status。' });
+    const command = loginCommand(encodeTicket(info), sshTarget);
+    return textResult({ started: true, serverUrl: SERVER_URL, expiresAt: info.expiresAt, command, message: '請在可開啟瀏覽器的電腦執行 command。遠端 MCP 請指定 sshTarget；同機可直接交接。完成後執行 mattermost_auth_status。' });
   } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
 });
 

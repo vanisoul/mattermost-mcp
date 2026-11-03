@@ -32,7 +32,7 @@ test('訊息 tools 的 stdio MCP 與模擬 HTTP API 整合', async (t) => {
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (req.headers.authorization !== 'Bearer test-only-token') return send(401, { error: 'no credential' });
     if (req.url === `/api/v4/channels/${CHANNEL}`) return send(200, {
-      id: CHANNEL, name: 'bevis-fixture', display_name: 'bevis-fixture', team_id: 't'.repeat(26), type: 'P', delete_at: archived ? 1 : 0,
+      id: CHANNEL, name: 'test-channel', display_name: 'test-channel', team_id: 't'.repeat(26), type: 'P', delete_at: archived ? 1 : 0,
     });
     if (req.method === 'POST' && req.url === '/api/v4/posts') {
       let raw = '';
@@ -91,7 +91,7 @@ test('訊息 tools 的 stdio MCP 與模擬 HTTP API 整合', async (t) => {
   });
 
   await t.test('取得頻道與單則訊息', async () => {
-    assert.equal(decode(await call('get_channel', { channelId: CHANNEL })).name, 'bevis-fixture');
+    assert.equal(decode(await call('get_channel', { channelId: CHANNEL })).name, 'test-channel');
     assert.equal(decode(await call('get_post', { postId: ROOT })).id, ROOT);
   });
 

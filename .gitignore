@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 *.log
+*.tgz
 
 # Local browser profile and session credentials
 .mattermost-mcp/
+.pi/mcp.json

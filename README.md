@@ -1,173 +1,199 @@
 # mattermost-mcp
 
-本專案提供本機 MCP server，讓使用者透過 Mattermost 網頁登入（包含站台設定的 GitLab OAuth SSO），再使用登入後的 Mattermost Session 呼叫 API。
+通用的 Mattermost [MCP](https://modelcontextprotocol.io/) server。使用者在瀏覽器完成站台既有的登入流程後，以 Mattermost 核發的 Session Token 呼叫 REST API v4。
 
-## 功能
+**不綁定身份提供者，不需要額外註冊 OAuth Application，也不需要把帳密或 Token 貼給模型。** 原生登入與 SSO 的導向由 Mattermost 站台處理；MCP 只接受通過 `GET /api/v4/users/me` 驗證的 Mattermost Token。
 
-目前提供：
+> 本文件的 registry `npx` 範例需等 `mattermost-mcp@0.1.0` 實際發布到 npm 後才能使用。原始碼開發與 tarball 驗證不需要先發布。
 
-- `mattermost_login`：在遠端建立一次性 nonce callback，供本機 Login Helper 透過 SSH port forwarding 交接 Token。
-- `mattermost_auth_status`：以 `GET /api/v4/users/me` 驗證登入狀態；不會把 Token 回傳給模型。
-- `mattermost_get_current_user`：取得目前登入者。
-- `mattermost_list_teams`：列出目前使用者可存取的 teams。
-- `mattermost_list_channels`：列出指定 team 的 channels。
-- `mattermost_search_posts`：搜尋 posts。
-- `mattermost_get_channel`：以 `channelId` 查詢頻道名稱、類型及封存狀態。
-- `mattermost_get_post`：以 `postId` 取得單則訊息。
-- `mattermost_get_thread`：以 `postId` 取得討論串及回覆。
-- `mattermost_create_post`：以 `channelId`、`message` 實際發送新訊息。
-- `mattermost_reply_to_thread`：以 `channelId`、`postId`、`message` 實際回覆討論串。
+## 快速開始：npx 設定 MCP
 
-### 發送與回覆
-
-```text
-mattermost_create_post({"channelId":"<頻道 ID>","message":"測試訊息"})
-mattermost_reply_to_thread({"channelId":"<同一頻道 ID>","postId":"<原訊息或既有回覆 ID>","message":"討論串回覆"})
-mattermost_get_thread({"postId":"<原訊息 ID>"})
-```
-
-發送與回覆會使用目前登入者身分，屬於**非唯讀操作**；必須先取得使用者對目標頻道與內容的授權。工具的 MCP annotations 已標記 `readOnlyHint: false`、`idempotentHint: false`，但 annotations 本身不是權限攔截機制。
-
-寫入前會檢查頻道是否封存；回覆時會確認目標訊息與根訊息都屬於指定頻道且未刪除。`postId` 可以是既有回覆，工具會自動找出真正的 `root_id`。空白訊息、超過 5 行或任何一行超過 50 個 Unicode 字元的內容會被拒絕；空白行、結尾換行、標點、Markdown 與網址都會計入限制，Markdown 原始格式會保留。
-
-若寫入時連線中斷或逾時，訊息可能已成功送出，工具不會自動重試；請先在 Mattermost 確認結果再決定是否重送。
-
-登入時會使用一次性的 Playwright browser context；只有通過 `GET /api/v4/users/me` 驗證的 Mattermost Session Token 會保存於：
-
-```text
-~/.config/mattermost-mcp/<server-hash>/session.json
-```
-
-後續 API 直接使用：
-
-```http
-Authorization: Bearer <mattermost-session-token>
-```
-
-GitLab Cookie、OAuth `code`、`state` 與瀏覽器 Cookie 不會保存。Token 不會回傳給 MCP 使用者，也不應提交到 Git。
-
-### Token 保存在何處？
-
-Token 保存在**執行 MCP 的作業系統使用者**所屬的上述檔案中，不在模型記憶或對話內。MCP 重啟後會重新讀取，直到 Mattermost Session 過期、被撤銷，或本機憑證檔案被刪除。
-
-POSIX 系統的站台目錄使用 `0700`，`session.json` 使用 `0600`。目前是明文憑證搭配檔案權限，**不是加密儲存**。同一作業系統使用者及系統管理員仍可讀取；AI 若獲准執行任意檔案讀取或 shell 指令，也可能讀到，因此「tools 不回傳 Token」不等於作業系統隔離。請不要讓不同使用者共用同一個 MCP OS 帳號，也不要將憑證納入備份分享或 Git。
-
-## 安裝
-
-需求：
-
-- Node.js 22+
-- Chromium（Playwright 會使用自己的瀏覽器安裝；若尚未安裝，執行 `npx playwright install chromium`）
-- Pi 1.3+
-
-```bash
-npm install
-npx playwright install chromium
-npm run build
-```
-
-## 在 Pi 設定 MCP
-
-本專案已提供 `.pi/mcp.json`：
+需求：Node.js **22 或更新版本**，以及支援 stdio 的 MCP Client。
 
 ```json
 {
   "mcpServers": {
     "mattermost": {
-      "command": "node",
-      "args": ["dist/server.js"],
-      "cwd": ".",
-      "exposure": "direct",
-      "timeout": 30
-    }
-  }
-}
-```
-
-Pi 也支援使用 CLI 加入本地 MCP：
-
-```bash
-pi mcp add -l mattermost --cwd "$PWD" -- node dist/server.js
-```
-
-專案設定需要 Pi 信任此專案；若 Pi 提示 project trust，請選擇信任。設定完成後，在目前 Pi session 執行：
-
-```text
-/reload
-```
-
-或重新啟動 Pi。接著可以呼叫 `mattermost_login`。
-
-## SSH 遠端初始化流程（B 方案）
-
-MCP 可以留在 server 上，瀏覽器則在你的本機開啟。請先在 Pi 呼叫 `mattermost_login`，並將你的 SSH 目標填入，例如 `bevis@server.example`：
-
-```text
-mattermost_login({"sshTarget":"bevis@server.example"})
-```
-
-工具會回傳一個包含 5 分鐘一次性配對碼的 command，例如：
-
-```bash
-node dist/desktop-login.js --ssh bevis@server.example --ticket <一次性配對碼>
-```
-
-請在**你的本機**執行該 command（不是遠端 server）：
-
-```bash
-npm install
-npx playwright install chromium
-npm run build
-node dist/desktop-login.js --ssh bevis@server.example --ticket <工具回傳的配對碼>
-```
-
-本機 Login Helper 會：
-
-1. 建立 SSH `-L` local port forwarding；本機與遠端 callback listener 都只綁定 `127.0.0.1`。
-2. 開啟 `https://chat.webpat.co/`，讓 Mattermost 自己導向 GitLab OAuth。
-3. 等你完成正常登入。
-4. 只取 Mattermost 的 `MMSID` 或驗證過的 `Token` header。
-5. 透過 SSH 加密通道 POST 到遠端一次性 callback。
-6. 遠端以 `/api/v4/users/me` 驗證，成功後才保存 Bearer Token。
-7. callback 接受一次後立即關閉；nonce 5 分鐘後失效。
-
-完成後回到 Pi 呼叫：
-
-```text
-mattermost_auth_status
-```
-
-注意：配對碼可以出現在本機 command line，因為它是短期配對值，不是 Session Token；真正的 Token 不會出現在 URL、SSH log 或 MCP 回應中。
-
-## 自訂站台
-
-```bash
-MATTERMOST_URL=https://chat.example.com npm start
-```
-
-或在 `.pi/mcp.json` 加入環境變數：
-
-```json
-{
-  "mcpServers": {
-    "mattermost": {
-      "command": "node",
-      "args": ["dist/server.js"],
-      "cwd": ".",
+      "command": "npx",
+      "args": ["--yes", "mattermost-mcp@0.1.0"],
       "env": {
-        "MATTERMOST_URL": "https://chat.webpat.co"
+        "MATTERMOST_URL": "https://mattermost.example.com"
       }
     }
   }
 }
 ```
 
-## 無圖形桌面環境
+- `MATTERMOST_URL` **必填**，沒有預設站台。
+- 使用站台原始網址，不附加 `/api/v4`、其他路徑、帳密或查詢參數。
+- 正式站台必須使用 HTTPS；僅 loopback 本機測試允許 HTTP。
+- MCP 不需要 checkout repository、執行 TypeScript build 或安裝圖形桌面。
+- 使用固定版本方便重現；升級時同步更新 MCP 與登入小幫手。
+- 完整設定範例位於 [`examples/mcp.json`](examples/mcp.json)。
 
-遠端 MCP 不需要 `DISPLAY`；只有本機 Login Helper 需要可操作的桌面瀏覽器。這個設計適合 Pi 透過 SSH 執行的情境。
+### Pi
 
-## 安全性
+把設定放在使用者的 `~/.pi/agent/mcp.json`，或受信任專案的 `.pi/mcp.json`。也可以執行：
 
-這個流程不需要 Mattermost OAuth Application，也不需要把 GitLab 密碼、OAuth secret 或 Session Token 貼給模型。Session 等同使用者權限，請勿把 `~/.config/mattermost-mcp` 分享給其他人。
+```bash
+pi mcp add mattermost \
+  --env MATTERMOST_URL=https://mattermost.example.com \
+  -- npx --yes mattermost-mcp@0.1.0
+```
 
-若 API 回傳 `401`，請重新執行 `mattermost_login`；不要把錯誤訊息中的 Token 或 Cookie 貼到對話中。
+專案限定設定使用 `pi mcp add -l`。設定完成後執行 `/reload` 或重新啟動 Pi。
+
+### 其他 MCP Client
+
+使用相同的 `command`、`args` 與 `env`。設定檔路徑與重新載入方式依 Client 而定。Windows Client 若無法直接找到 `npx`，可依該 Client 的程序啟動方式改用 `npx.cmd`。
+
+## 初始化登入
+
+### 先在有桌面的電腦安裝瀏覽器
+
+只需要在**操作瀏覽器的電腦**執行，不需要在無桌面的遠端 MCP server 執行：
+
+```bash
+npx --yes mattermost-mcp@0.1.0 install-browser
+```
+
+這會安裝套件所使用的 Playwright Chromium，不會在一般 `npx` 啟動 MCP 時自動下載瀏覽器。Linux 若缺少 Chromium 所需的系統函式庫，請依 Playwright 提示由管理員安裝。
+
+### MCP 與瀏覽器在同一台電腦
+
+1. 在 MCP Client 呼叫 `mattermost_login({})`。
+2. 它會回傳一次性 `npx` command。
+3. 在同一台電腦的終端機執行 command，例如：
+
+```bash
+npx --yes mattermost-mcp@0.1.0 login --ticket PAIRING_CODE
+```
+
+完成瀏覽器登入後，執行 `mattermost_auth_status` 驗證。同機模式不需要 SSH。
+
+### MCP 在遠端 server，瀏覽器在本機電腦
+
+遠端 MCP 不需要圖形桌面。先在 MCP Client 呼叫：
+
+```text
+mattermost_login({"sshTarget":"my-server"})
+```
+
+`my-server` 是**本機**可使用的 SSH alias，也可以填 `user@example.com`。SSH port forwarding 必須連到執行 MCP 的同一台主機、相同網路命名空間；容器內的 loopback 不一定等於 SSH 主機的 loopback。
+
+工具會回傳有效期 **5 分鐘**的 command，例如：
+
+```bash
+npx --yes mattermost-mcp@0.1.0 login \
+  --ssh my-server \
+  --ticket PAIRING_CODE
+```
+
+請在有桌面瀏覽器的**本機電腦**執行，不是在遠端 SSH shell 執行。小幫手會：
+
+1. 以 SSH `-L` 建立本機到遠端 callback 的加密通道。
+2. 驗證 callback 與配對資料相符。
+3. 開啟配對中的 Mattermost 網址，由站台處理登入與導向。
+4. 讀取 Mattermost response 的 `Token` header 或 `MMSID` Cookie。
+5. 以 `Authorization: Bearer <token>` 呼叫 `/api/v4/users/me` 驗證。
+6. 透過通道交接；遠端再次驗證成功後才保存 Token。
+
+callback 僅綁定 `127.0.0.1`，不需要開公開 HTTP port。配對碼包含短期 nonce，不是 Session Token，但仍應保密；一次憑證交接嘗試後失效。逾時、MCP 重啟或重新載入後，請重新呼叫 `mattermost_login`。
+
+完成後呼叫 `mattermost_auth_status`，確認 `authenticated: true`。之後 API 不需要保持瀏覽器或 SSH 通道開啟。
+
+## CLI
+
+```bash
+npx --yes mattermost-mcp@0.1.0 --help
+npx --yes mattermost-mcp@0.1.0 --version
+npx --yes mattermost-mcp@0.1.0 install-browser
+npx --yes mattermost-mcp@0.1.0 login --ticket PAIRING_CODE
+```
+
+`mattermost-mcp` 不帶參數或使用 `serve` 都會啟動 stdio MCP server；站台由 `MATTERMOST_URL` 指定。套件也提供 `mattermost-mcp-login` 執行檔作為登入指令的別名。
+
+## Tools
+
+| Tool | 用途 | 主要參數 |
+|---|---|---|
+| `mattermost_login` | 建立一次性配對並回傳登入指令 | `sshTarget`（選填） |
+| `mattermost_auth_status` | 驗證保存的 Session，不回傳 Token | 無 |
+| `mattermost_get_current_user` | 取得目前使用者 | 無 |
+| `mattermost_list_teams` | 列出所屬團隊 | 無 |
+| `mattermost_list_channels` | 列出加入的頻道，可能包含私訊 | `teamId` |
+| `mattermost_search_posts` | 搜尋有權限查看的訊息 | `teamId`、`terms`、`isOrSearch`（選填） |
+| `mattermost_get_channel` | 查詢頻道及封存狀態 | `channelId` |
+| `mattermost_get_post` | 取得單則訊息 | `postId` |
+| `mattermost_get_thread` | 取得討論串 | `postId` |
+| `mattermost_create_post` | 實際發送訊息 | `channelId`、`message` |
+| `mattermost_reply_to_thread` | 實際回覆討論串 | `channelId`、`postId`、`message` |
+
+### 發送與回覆：TL;DR 限制
+
+兩個寫入 tools 都強制驗證：
+
+- 每則最多 **5 行**，每行最多 **50 個 Unicode code points**。
+- 空白、標點、Markdown、網址都計入字數；組合 emoji 可能包含多個 code points。
+- 空白行、結尾換行計入行數；支援 LF、CRLF、CR。
+- 超限或全空白內容直接拒絕，不呼叫 API，不截斷，也不自動拆成多則。
+- Tool 描述會要求以 TL;DR 點出結論與重點；語意摘要由呼叫端負責。
+- 讀取歷史訊息不受這些發送限制影響。
+
+工具會檢查封存頻道、討論串歸屬與已刪除訊息。`postId` 可指向根訊息或回覆，工具會解析真正的 `root_id`。
+
+寫入需先取得使用者授權；MCP annotations 是提示，不是額外的權限攔截機制。若寫入連線中斷，訊息可能已送出；工具不自動重試，請先查詢確認。
+
+## 設定與安全性
+
+| 環境變數 | 說明 |
+|---|---|
+| `MATTERMOST_URL` | 必填，Mattermost 站台原始網址 |
+| `MATTERMOST_MCP_DATA_DIR` | 選填，覆寫憑證保存根目錄 |
+
+預設憑證位置：
+
+```text
+~/.config/mattermost-mcp/<server-hash>/session.json
+```
+
+不同站台分開保存；MCP 重啟後可沿用，直到 Session 過期或被撤銷。所有 API 權限等同登入者，MCP 不會提升權限。
+
+- POSIX 站台目錄權限 `0700`，憑證檔案 `0600`；Windows 請另行確認 ACL。
+- Token 是明文檔案搭配權限保護，**不是加密儲存**。
+- 一般 tool 輸出不含 Token；小幫手不保存身份提供者 Cookie 或 OAuth 授權碼。
+- 同一 OS 使用者、系統管理員，以及具備相同檔案讀取權限的 AI tools 仍可能讀取憑證。
+- 不要讓不同使用者共用同一個 MCP OS 帳號，不要把憑證提交 Git 或分享備份。
+- 刪除本機憑證只會移除本機副本；若需撤銷，請在 Mattermost 的 Session／安全性設定操作。
+
+## 相容性與限制
+
+使用 Mattermost REST API v4，已在 Mattermost 10.12.4 驗證登入及主要 tools。其他站台必須提供相容的 API、Session 與權限；不宣稱已測試所有版本或身份提供者。
+
+目前支援站台部署於原始網址根目錄；不支援子路徑部署。若站台無法提供可作 Bearer Token 使用的 Session，本版本會拒絕保存，不會自行改用未驗證的 Cookie 認證。搜尋目前未提供分頁參數，大量結果請縮小時間範圍。
+
+## 原始碼開發與發布
+
+```bash
+npm ci
+npm run check
+npm run test:package
+```
+
+開發時可使用 `node dist/cli.js` 啟動 MCP，並在 Client 的 `env` 明確設定 `MATTERMOST_URL`。`examples/mcp.json` 是可公開的設定範例；`.pi/mcp.json` 是不納入版本控制的個人開發設定。
+
+npm 只打包 `dist/`、`examples/`、README 與 LICENSE 等明確允許的檔案。`prepack` 會建置，`prepublishOnly` 會執行測試；使用者安裝 registry 套件時不需要 TypeScript 開發依賴。
+
+發布前請確認：套件名稱擁有權、版本、LICENSE，以及 GitHub repository 的 `repository`／`homepage`／`bugs` 中繼資料。GitHub 位置由維護者決定，本專案不內建私人 repository URL。
+
+```bash
+npm pack --dry-run
+npm login
+npm publish --access public
+```
+
+執行 `npm publish` 才會真的發布；這不是安裝或測試步驟。若套件改名，請同步調整 README 與設定範例；tool 產生的登入指令會自動使用 `package.json` 的名稱與版本。
+
+## 授權
+
+MIT，詳見 [LICENSE](LICENSE)。
