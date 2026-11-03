@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Local browser profile and session credentials
+.mattermost-mcp/
