@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { MattermostApi, SessionStore, normalizeServerUrl } from './session.js';
 import { PairingService, encodeTicket } from './pairing.js';
+import { registerMessageTools } from './messages.js';
 
 const SERVER_URL = normalizeServerUrl(process.env.MATTERMOST_URL ?? 'https://chat.webpat.co');
 const DATA_ROOT = process.env.MATTERMOST_MCP_DATA_DIR;
@@ -81,5 +82,7 @@ server.registerTool('mattermost_search_posts', {
     return errorResult(error instanceof Error ? error.message : String(error));
   }
 });
+
+registerMessageTools(server, api);
 
 await server.connect(new StdioServerTransport());

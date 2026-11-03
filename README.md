@@ -12,6 +12,25 @@
 - `mattermost_list_teams`：列出目前使用者可存取的 teams。
 - `mattermost_list_channels`：列出指定 team 的 channels。
 - `mattermost_search_posts`：搜尋 posts。
+- `mattermost_get_channel`：以 `channelId` 查詢頻道名稱、類型及封存狀態。
+- `mattermost_get_post`：以 `postId` 取得單則訊息。
+- `mattermost_get_thread`：以 `postId` 取得討論串及回覆。
+- `mattermost_create_post`：以 `channelId`、`message` 實際發送新訊息。
+- `mattermost_reply_to_thread`：以 `channelId`、`postId`、`message` 實際回覆討論串。
+
+### 發送與回覆
+
+```text
+mattermost_create_post({"channelId":"<頻道 ID>","message":"測試訊息"})
+mattermost_reply_to_thread({"channelId":"<同一頻道 ID>","postId":"<原訊息或既有回覆 ID>","message":"討論串回覆"})
+mattermost_get_thread({"postId":"<原訊息 ID>"})
+```
+
+發送與回覆會使用目前登入者身分，屬於**非唯讀操作**；必須先取得使用者對目標頻道與內容的授權。工具的 MCP annotations 已標記 `readOnlyHint: false`、`idempotentHint: false`，但 annotations 本身不是權限攔截機制。
+
+寫入前會檢查頻道是否封存；回覆時會確認目標訊息與根訊息都屬於指定頻道且未刪除。`postId` 可以是既有回覆，工具會自動找出真正的 `root_id`。空白訊息及超過 16383 個字元的內容會被拒絕，Markdown 原始格式會保留。
+
+若寫入時連線中斷或逾時，訊息可能已成功送出，工具不會自動重試；請先在 Mattermost 確認結果再決定是否重送。
 
 登入時會使用一次性的 Playwright browser context；只有通過 `GET /api/v4/users/me` 驗證的 Mattermost Session Token 會保存於：
 
@@ -26,6 +45,12 @@ Authorization: Bearer <mattermost-session-token>
 ```
 
 GitLab Cookie、OAuth `code`、`state` 與瀏覽器 Cookie 不會保存。Token 不會回傳給 MCP 使用者，也不應提交到 Git。
+
+### Token 保存在何處？
+
+Token 保存在**執行 MCP 的作業系統使用者**所屬的上述檔案中，不在模型記憶或對話內。MCP 重啟後會重新讀取，直到 Mattermost Session 過期、被撤銷，或本機憑證檔案被刪除。
+
+POSIX 系統的站台目錄使用 `0700`，`session.json` 使用 `0600`。目前是明文憑證搭配檔案權限，**不是加密儲存**。同一作業系統使用者及系統管理員仍可讀取；AI 若獲准執行任意檔案讀取或 shell 指令，也可能讀到，因此「tools 不回傳 Token」不等於作業系統隔離。請不要讓不同使用者共用同一個 MCP OS 帳號，也不要將憑證納入備份分享或 Git。
 
 ## 安裝
 
@@ -117,7 +142,7 @@ mattermost_auth_status
 ## 自訂站台
 
 ```bash
-MATTERMOST_URL=https://chat.example.com npm run build
+MATTERMOST_URL=https://chat.example.com npm start
 ```
 
 或在 `.pi/mcp.json` 加入環境變數：

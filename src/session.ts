@@ -81,10 +81,18 @@ export class MattermostApi {
         redirect: 'error',
         signal: AbortSignal.timeout(10_000),
       });
-    } catch { throw new Error('Mattermost API 連線失敗或逾時，請確認網路與站台。'); }
+    } catch {
+      throw new Error(init.method === 'POST'
+        ? 'Mattermost API 連線失敗或逾時；若為發訊息或回覆，可能已送出，請先查詢確認，不要直接重送。'
+        : 'Mattermost API 連線失敗或逾時，請確認網路與站台。');
+    }
     if (!response.ok) throw new ApiError(response.status);
     try { return await response.json(); }
-    catch { throw new Error('Mattermost API 未回傳有效 JSON。'); }
+    catch {
+      throw new Error(init.method === 'POST'
+        ? 'Mattermost API 回應無效；若為發訊息或回覆，可能已送出，請先查詢確認，不要直接重送。'
+        : 'Mattermost API 未回傳有效 JSON。');
+    }
   }
 
   async verify(token: string): Promise<{ id: string; username: string }> {
