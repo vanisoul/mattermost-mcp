@@ -4,7 +4,7 @@
 
 **不綁定身份提供者，不需要額外註冊 OAuth Application，也不需要把帳密或 Token 貼給模型。** 原生登入與 SSO 的導向由 Mattermost 站台處理；MCP 只接受通過 `GET /api/v4/users/me` 驗證的 Mattermost Token。
 
-> 本文件的 registry `npx` 範例需等 `mattermost-mcp@1.0.0` 實際發布到 npm 後才能使用。原始碼開發與 tarball 驗證不需要先發布。
+> 本文件的 registry `npx` 範例需等 `mattermost-mcp@1.1.0` 實際發布到 npm 後才能使用。原始碼開發與 tarball 驗證不需要先發布。
 
 ## 快速開始：npx 設定 MCP
 
@@ -15,7 +15,7 @@
   "mcpServers": {
     "mattermost": {
       "command": "npx",
-      "args": ["--yes", "mattermost-mcp@1.0.0"],
+      "args": ["--yes", "mattermost-mcp@1.1.0"],
       "env": {
         "MATTERMOST_URL": "https://mattermost.example.com"
       }
@@ -38,7 +38,7 @@
 ```bash
 pi mcp add mattermost \
   --env MATTERMOST_URL=https://mattermost.example.com \
-  -- npx --yes mattermost-mcp@1.0.0
+  -- npx --yes mattermost-mcp@1.1.0
 ```
 
 專案限定設定使用 `pi mcp add -l`。設定完成後執行 `/reload` 或重新啟動 Pi。
@@ -54,7 +54,7 @@ pi mcp add mattermost \
 只需要在**操作瀏覽器的電腦**執行，不需要在無桌面的遠端 MCP server 執行：
 
 ```bash
-npx --yes mattermost-mcp@1.0.0 install-browser
+npx --yes mattermost-mcp@1.1.0 install-browser
 ```
 
 這會安裝套件所使用的 Playwright Chromium，不會在一般 `npx` 啟動 MCP 時自動下載瀏覽器。Linux 若缺少 Chromium 所需的系統函式庫，請依 Playwright 提示由管理員安裝。
@@ -66,7 +66,7 @@ npx --yes mattermost-mcp@1.0.0 install-browser
 3. 在同一台電腦的終端機執行 command，例如：
 
 ```bash
-npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
+npx --yes mattermost-mcp@1.1.0 login --ticket PAIRING_CODE
 ```
 
 完成瀏覽器登入後，執行 `mattermost_auth_status` 驗證。同機模式不需要 SSH。
@@ -84,7 +84,7 @@ mattermost_login({"sshTarget":"my-server"})
 工具會回傳有效期 **5 分鐘**的 command，例如：
 
 ```bash
-npx --yes mattermost-mcp@1.0.0 login \
+npx --yes mattermost-mcp@1.1.0 login \
   --ssh my-server \
   --ticket PAIRING_CODE
 ```
@@ -105,10 +105,10 @@ callback 僅綁定 `127.0.0.1`，不需要開公開 HTTP port。配對碼包含�
 ## CLI
 
 ```bash
-npx --yes mattermost-mcp@1.0.0 --help
-npx --yes mattermost-mcp@1.0.0 --version
-npx --yes mattermost-mcp@1.0.0 install-browser
-npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
+npx --yes mattermost-mcp@1.1.0 --help
+npx --yes mattermost-mcp@1.1.0 --version
+npx --yes mattermost-mcp@1.1.0 install-browser
+npx --yes mattermost-mcp@1.1.0 login --ticket PAIRING_CODE
 ```
 
 `mattermost-mcp` 不帶參數或使用 `serve` 都會啟動 stdio MCP server；站台由 `MATTERMOST_URL` 指定。套件也提供 `mattermost-mcp-login` 執行檔作為登入指令的別名。
