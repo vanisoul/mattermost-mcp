@@ -133,7 +133,8 @@ npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
 
 兩個寫入 tools 都強制驗證：
 
-- 每則最多 **5 行**，每行最多 **50 個 Unicode code points**。
+- 預設每則最多 **15 行**，每行最多 **100 個 Unicode code points**；可用 `MATTERMOST_MAX_MESSAGE_LINES`、`MATTERMOST_MAX_MESSAGE_LINE_LENGTH` 調整。
+- Tool 描述與錯誤訊息會顯示目前生效的限制。
 - 空白、標點、Markdown、網址都計入字數；組合 emoji 可能包含多個 code points。
 - 空白行、結尾換行計入行數；支援 LF、CRLF、CR。
 - 超限或全空白內容直接拒絕，不呼叫 API，不截斷，也不自動拆成多則。
@@ -150,6 +151,18 @@ npx --yes mattermost-mcp@1.0.0 login --ticket PAIRING_CODE
 |---|---|
 | `MATTERMOST_URL` | 必填，Mattermost 站台原始網址 |
 | `MATTERMOST_MCP_DATA_DIR` | 選填，覆寫憑證保存根目錄 |
+| `MATTERMOST_MAX_MESSAGE_LINES` | 選填，發送／回覆每則最多行數，正整數，預設 `15` |
+| `MATTERMOST_MAX_MESSAGE_LINE_LENGTH` | 選填，發送／回覆每行最多 Unicode code points，正整數，預設 `100` |
+
+限制值不是正整數時，MCP server 會拒絕啟動。例如維持舊版的 5 行 50 字：
+
+```json
+"env": {
+  "MATTERMOST_URL": "https://mattermost.example.com",
+  "MATTERMOST_MAX_MESSAGE_LINES": "5",
+  "MATTERMOST_MAX_MESSAGE_LINE_LENGTH": "50"
+}
+```
 
 預設憑證位置：
 
