@@ -3,18 +3,41 @@ import { z } from 'zod';
 import { MattermostApi } from './session.js';
 
 const id = z.string().regex(/^[a-z0-9]{26}$/, '必須是 26 個小寫英數字元的 Mattermost ID。');
-export const MAX_MESSAGE_LINES = 5;
-export const MAX_MESSAGE_LINE_LENGTH = 50;
+export const DEFAULT_MAX_MESSAGE_LINES = 15;
+export const DEFAULT_MAX_MESSAGE_LINE_LENGTH = 100;
 
-function isHumanSizedMessage(value: string): boolean {
-  const lines = value.split(/\r\n|\r|\n/);
-  return lines.length <= MAX_MESSAGE_LINES && lines.every((line) => Array.from(line).length <= MAX_MESSAGE_LINE_LENGTH);
+export interface MessageLimits {
+  maxLines: number;
+  maxLineLength: number;
 }
 
-const message = z.string()
-  .refine((value) => value.trim().length > 0, '訊息不可為空白。')
-  .refine(isHumanSizedMessage, 'Mattermost 訊息限制為最多 5 行，且每行最多 50 字；請先用 TL;DR 整理重點。')
-  .describe('請以 TL;DR 點出結論與重點。最多 5 行，每行最多 50 個 Unicode 字元；空白、標點、Markdown 與網址皆計數，空白行及結尾換行也計入行數。');
+function parseLimit(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  if (!/^[1-9]\d*$/.test(raw.trim())) throw new Error(`${name} 必須是正整數。`);
+  const value = Number(raw.trim());
+  if (!Number.isSafeInteger(value)) throw new Error(`${name} 必須是正整數。`);
+  return value;
+}
+
+/** 從 MCP 設定的 env 讀取訊息限制；未設定時使用預設值。 */
+export function messageLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): MessageLimits {
+  return {
+    maxLines: parseLimit('MATTERMOST_MAX_MESSAGE_LINES', env.MATTERMOST_MAX_MESSAGE_LINES, DEFAULT_MAX_MESSAGE_LINES),
+    maxLineLength: parseLimit('MATTERMOST_MAX_MESSAGE_LINE_LENGTH', env.MATTERMOST_MAX_MESSAGE_LINE_LENGTH, DEFAULT_MAX_MESSAGE_LINE_LENGTH),
+  };
+}
+
+function messageSchema({ maxLines, maxLineLength }: MessageLimits) {
+  const isHumanSized = (value: string) => {
+    const lines = value.split(/\r\n|\r|\n/);
+    return lines.length <= maxLines && lines.every((line) => Array.from(line).length <= maxLineLength);
+  };
+  return z.string()
+    .refine((value) => value.trim().length > 0, '訊息不可為空白。')
+    .refine(isHumanSized, `Mattermost 訊息限制為最多 ${maxLines} 行，且每行最多 ${maxLineLength} 字；請先用 TL;DR 整理重點。`)
+    .describe(`請以 TL;DR 點出結論與重點。最多 ${maxLines} 行，每行最多 ${maxLineLength} 個 Unicode 字元；空白、標點、Markdown 與網址皆計數，空白行及結尾換行也計入行數。`);
+}
+
 const channelSchema = z.object({
   id, team_id: z.string(), name: z.string(), display_name: z.string(),
   type: z.enum(['O', 'P', 'D', 'G']), delete_at: z.number(),
@@ -28,7 +51,7 @@ const threadSchema = z.object({
   next_post_id: z.string().optional(), prev_post_id: z.string().optional(),
 });
 
-function assertHumanSizedMessage(value: string): void {
+function assertHumanSizedMessage(message: z.ZodType<string>, value: string): void {
   const parsed = message.safeParse(value);
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? '訊息格式不符合 Mattermost 顯示限制。');
 }
@@ -43,7 +66,11 @@ function parse<T>(schema: z.ZodType<T>, value: unknown, writing = false): T {
 
 /** 所有寫入先確認頻道及討論串歸屬，不重試 POST。 */
 export class MessageService {
-  constructor(private api: MattermostApi) {}
+  private message: z.ZodType<string>;
+
+  constructor(private api: MattermostApi, limits: MessageLimits = messageLimitsFromEnv({})) {
+    this.message = messageSchema(limits);
+  }
 
   async getChannel(channelId: string) {
     return parse(channelSchema, await this.api.request(`/channels/${channelId}`));
@@ -63,7 +90,7 @@ export class MessageService {
   }
 
   async createPost(channelId: string, text: string) {
-    assertHumanSizedMessage(text);
+    assertHumanSizedMessage(this.message, text);
     await this.requireChannel(channelId);
     return parse(postSchema, await this.api.request('/posts', undefined, {
       method: 'POST', body: { channel_id: channelId, message: text },
@@ -71,7 +98,7 @@ export class MessageService {
   }
 
   async replyToThread(channelId: string, postId: string, text: string) {
-    assertHumanSizedMessage(text);
+    assertHumanSizedMessage(this.message, text);
     await this.requireChannel(channelId);
     const target = await this.getPost(postId);
     if (target.id !== postId || target.channel_id !== channelId || target.delete_at !== 0) {
@@ -87,8 +114,10 @@ export class MessageService {
   }
 }
 
-export function registerMessageTools(server: McpServer, api: MattermostApi) {
-  const service = new MessageService(api);
+export function registerMessageTools(server: McpServer, api: MattermostApi, limits: MessageLimits = messageLimitsFromEnv()) {
+  const service = new MessageService(api, limits);
+  const message = messageSchema(limits);
+  const size = `最多 ${limits.maxLines} 行、每行最多 ${limits.maxLineLength} 字`;
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
   const writing = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
   const result = async (call: () => Promise<unknown>) => {
@@ -114,12 +143,12 @@ export function registerMessageTools(server: McpServer, api: MattermostApi) {
   }, ({ postId }) => result(() => service.getThread(postId)));
 
   server.registerTool('mattermost_create_post', {
-    description: '以目前登入者身分發送訊息。內容必須是 TL;DR：最多 5 行、每行最多 50 字；非唯讀，須有使用者授權；逾時不得直接重送。',
+    description: `以目前登入者身分發送訊息。內容必須是 TL;DR：${size}；非唯讀，須有使用者授權；逾時不得直接重送。`,
     inputSchema: { channelId: id, message }, annotations: writing,
   }, ({ channelId, message: text }) => result(() => service.createPost(channelId, text)));
 
   server.registerTool('mattermost_reply_to_thread', {
-    description: '以 TL;DR 回覆討論串：最多 5 行、每行最多 50 字。postId 可為根訊息或既有回覆，會自動找出 root_id 並檢查頻道歸屬；非唯讀，須有使用者授權。',
+    description: `以 TL;DR 回覆討論串：${size}。postId 可為根訊息或既有回覆，會自動找出 root_id 並檢查頻道歸屬；非唯讀，須有使用者授權。`,
     inputSchema: { channelId: id, postId: id, message }, annotations: writing,
   }, ({ channelId, postId, message: text }) => result(() => service.replyToThread(channelId, postId, text)));
 }

@@ -5,12 +5,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { MattermostApi, SessionStore, normalizeServerUrl } from './session.js';
 import { PairingService, encodeTicket } from './pairing.js';
-import { registerMessageTools } from './messages.js';
+import { messageLimitsFromEnv, registerMessageTools } from './messages.js';
 import { loginCommand, PACKAGE_NAME, PACKAGE_VERSION } from './package-info.js';
 const rawServerUrl = process.env.MATTERMOST_URL;
 if (!rawServerUrl) throw new Error('請在 MCP 設定的 env 中指定 MATTERMOST_URL。');
 const SERVER_URL = normalizeServerUrl(rawServerUrl);
 const DATA_ROOT = process.env.MATTERMOST_MCP_DATA_DIR;
+const MESSAGE_LIMITS = messageLimitsFromEnv();
 const store = new SessionStore(SERVER_URL, DATA_ROOT);
 const api = new MattermostApi(SERVER_URL, store);
 const pairing = new PairingService(api, store);
@@ -89,6 +90,6 @@ server.registerTool('mattermost_search_posts', {
   }
 });
 
-registerMessageTools(server, api);
+registerMessageTools(server, api, MESSAGE_LIMITS);
 
 await server.connect(new StdioServerTransport());
